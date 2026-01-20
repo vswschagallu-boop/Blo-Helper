@@ -28,32 +28,21 @@ def fuzzy_word_match(q_word, cell_text, threshold):
     return False
 
 
-def words_match(q_words, row_cells, threshold):
-    """
-    All query words must match somewhere in the row
-    Returns (bool, matched_words_set)
-    """
-    matched = set()
-
-    for qw in q_words:
+def row_matches(query_words, row_cells, threshold):
+    for qw in query_words:
         found = False
         for cell in row_cells:
-            for w in normalize(cell).split():
-                if threshold == 100:
-                    ok = (qw == w)
-                else:
-                    ok = fuzz.partial_ratio(qw, w) >= threshold
-
-                if ok:
-                    matched.add(w)
+            if threshold == 100:
+                if exact_word_match(qw, cell):
                     found = True
-                    break
+            else:
+                if fuzzy_word_match(qw, cell, threshold):
+                    found = True
             if found:
                 break
         if not found:
-            return False, set()
-
-    return True, matched
+            return False
+    return True
 
 
 # ---------- ROUTES ----------
@@ -77,6 +66,7 @@ def upload():
 
     df.fillna("", inplace=True)
 
+    # ONLY preview rows
     preview = df.head(PREVIEW_LIMIT).to_dict(orient="records")
 
     return jsonify({
@@ -92,43 +82,38 @@ def search():
         return jsonify([])
 
     data = request.json
-    name_query = data.get("query", "").strip()
-    relation_query = data.get("relation", "").strip()
+    query = data.get("query", "").strip()
+    relation = data.get("relation", "").strip()
     threshold = int(data.get("threshold", 70))
 
-    if not name_query:
+    if not query:
         return jsonify([])
 
-    name_words = normalize(name_query).split()
-    relation_words = normalize(relation_query).split() if relation_query else []
+    name_words = normalize(query).split()
+    rel_words = normalize(relation).split() if relation else []
 
     results = []
 
+    # 🔥 SEARCH ENTIRE EXCEL (NO LIMIT)
     for _, row in df.iterrows():
         row_cells = [str(v) for v in row.values]
 
-        # ---- NAME MATCH ----
-        ok_name, matched_words = words_match(name_words, row_cells, threshold)
-        if not ok_name:
+        if not row_matches(name_words, row_cells, threshold):
             continue
 
-        # ---- RELATION MATCH (OPTIONAL) ----
-        if relation_words:
-            ok_rel, rel_matched = words_match(relation_words, row_cells, threshold)
-            if not ok_rel:
-                continue
-            matched_words |= rel_matched
+        if rel_words and not row_matches(rel_words, row_cells, threshold):
+            continue
 
-        r = row.to_dict()
-        r["_matched"] = list(matched_words)
-        results.append(r)
+        results.append(row.to_dict())
 
-    return jsonify(results)
+    return jsonify({
+        "count": len(results),
+        "rows": results
+    })
 
-
-import os
 
 if __name__ == "__main__":
+    import os
     port = int(os.environ.get("PORT", 10000))
     print("Created by Tharun, Contact- 8688963486")
     app.run(host="0.0.0.0", port=port)
