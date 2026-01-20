@@ -1,13 +1,269 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>BLO Helper</title>
+<meta charset="UTF-8">
+<title>BLO Helper</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 12px;
+    background: #f7f7f7;
+}
+
+h2 {
+    margin: 4px 0 10px 0;
+}
+
+.controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    background: #ffffff;
+    padding: 10px;
+    border-radius: 6px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+}
+
+.controls input,
+.controls button {
+    padding: 8px;
+    font-size: 14px;
+}
+
+.controls input[type="text"] {
+    width: 220px;
+}
+
+.controls button {
+    background: #1976d2;
+    color: white;
+    border: none;
+    border-radius: 4px;
+}
+
+.controls button.secondary {
+    background: #555;
+}
+
+#status {
+    margin: 10px 0;
+    color: #1976d2;
+    font-size: 14px;
+}
+
+#tableWrap {
+    background: white;
+    border: 1px solid #aaa;
+    border-radius: 4px;
+    max-height: 65vh;
+    overflow: auto;
+}
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+th, td {
+    border: 1px solid #ccc;
+    padding: 6px;
+    font-size: 14px;
+    white-space: nowrap;
+}
+
+th {
+    background: #eeeeee;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+tr.selected {
+    background: #cce5ff;
+}
+
+mark {
+    background: yellow;
+    padding: 0 2px;
+}
+
+.footer {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #555;
+    text-align: center;
+}
+
+@media (max-width: 768px) {
+    .controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .controls input,
+    .controls button {
+        width: 100%;
+    }
+}
+</style>
 </head>
+
 <body>
 
-<h1>BLO Helper</h1>
-<p>If you see this text, the website is working.</p>
+<h2>BLO Helper</h2>
+
+<div class="controls">
+    <input type="file" id="file">
+
+    <input type="text" id="query" placeholder="Name (Telugu / English)">
+
+    <input type="text" id="relation" placeholder="Relation (optional)">
+
+    <input type="number" id="threshold" value="70" min="40" max="100" title="Fuzzy %">
+
+    <button onclick="doSearch()">Search</button>
+    <button class="secondary" onclick="clearSearch()">Clear</button>
+</div>
+
+<div id="status">Upload Excel to begin</div>
+
+<div id="tableWrap">
+    <table id="table"></table>
+</div>
+
+<div class="footer">
+    Created by Tharun, Contact- 8688963486
+</div>
+
+<script>
+let preview = [];
+let rows = [];
+let selectedIndex = 0;
+
+/* ---------- UPLOAD ---------- */
+document.getElementById("file").addEventListener("change", uploadExcel);
+
+async function uploadExcel() {
+    const f = file.files[0];
+    if (!f) return;
+
+    const fd = new FormData();
+    fd.append("file", f);
+
+    status.innerText = "Uploading Excel…";
+
+    const res = await fetch("/upload", { method: "POST", body: fd });
+    const data = await res.json();
+
+    preview = data.preview;
+    rows = preview;
+
+    status.innerText =
+        `Loaded ${data.total} rows (showing first ${preview.length})`;
+
+    renderTable(rows);
+}
+
+/* ---------- SEARCH ---------- */
+async function doSearch() {
+    const name = query.value.trim();
+    const rel = relation.value.trim();
+
+    if (!name) {
+        alert("Enter name to search");
+        return;
+    }
+
+    status.innerText = "Searching…";
+
+    const res = await fetch("/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            query: name,
+            relation: rel,
+            threshold: threshold.value
+        })
+    });
+
+    rows = await res.json();
+    selectedIndex = 0;
+
+    status.innerText = `${rows.length} results found`;
+    renderTable(rows);
+}
+
+function clearSearch() {
+    query.value = "";
+    relation.value = "";
+    rows = preview;
+    selectedIndex = 0;
+    status.innerText = `Showing preview (${rows.length} rows)`;
+    renderTable(rows);
+}
+
+/* ---------- RENDER ---------- */
+function renderTable(data) {
+    const table = document.getElementById("table");
+    table.innerHTML = "";
+
+    if (!data || data.length === 0) return;
+
+    const headers = Object.keys(data[0]).filter(h => h !== "_matched");
+
+    // Header
+    let tr = document.createElement("tr");
+    headers.forEach(h => {
+        let th = document.createElement("th");
+        th.innerText = h;
+        tr.appendChild(th);
+    });
+    table.appendChild(tr);
+
+    // Rows
+    data.forEach((r, i) => {
+        let row = document.createElement("tr");
+        let matched = r._matched || [];
+
+        headers.forEach(h => {
+            let td = document.createElement("td");
+            td.innerHTML = highlightText(String(r[h]), matched);
+            row.appendChild(td);
+        });
+
+        row.onclick = () => selectRow(i);
+        table.appendChild(row);
+    });
+
+    highlightRow();
+}
+
+function highlightText(text, matched) {
+    let parts = text.split(/\s+/);
+    return parts.map(p => {
+        let lw = p.toLowerCase();
+        if (matched.includes(lw)) {
+            return `<mark>${p}</mark>`;
+        }
+        return p;
+    }).join(" ");
+}
+
+function selectRow(i) {
+    selectedIndex = i;
+    highlightRow();
+}
+
+function highlightRow() {
+    const trs = table.querySelectorAll("tr");
+    trs.forEach((r, i) => {
+        r.classList.toggle("selected", i === selectedIndex + 1);
+    });
+}
+</script>
 
 </body>
 </html>
