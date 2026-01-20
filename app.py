@@ -126,6 +126,9 @@ def search():
     return jsonify(results)
 
 
+import os
+
 if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
     print("Created by Tharun, Contact- 8688963486")
-    app.run(host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=port)
