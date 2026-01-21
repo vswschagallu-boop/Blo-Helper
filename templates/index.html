@@ -26,11 +26,32 @@ h2 { margin:6px 0; }
 }
 
 .controls button.secondary { background:#555; }
+.controls button:disabled { background:#aaa; }
 
-#status { margin:10px 0; color:#1976d2; }
+#status { margin:8px 0; color:#1976d2; }
+
+#loader {
+  display:none;
+  margin:8px 0;
+}
+
+.spinner {
+  display:inline-block;
+  width:18px;
+  height:18px;
+  border:3px solid #ccc;
+  border-top:3px solid #1976d2;
+  border-radius:50%;
+  animation:spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform:rotate(0deg); }
+  100% { transform:rotate(360deg); }
+}
 
 #wrap {
-  background:white;
+  background:#fff;
   border:1px solid #aaa;
   border-radius:4px;
   max-height:65vh;
@@ -62,7 +83,7 @@ mark { background:yellow; padding:0 2px; }
 
 <div class="controls">
   <input type="file" id="file">
-  <button onclick="uploadExcel()">Upload Excel</button>
+  <button id="uploadBtn" onclick="uploadExcel()">Upload Excel</button>
 
   <input id="name" placeholder="Name">
   <select id="nameCol"></select>
@@ -72,11 +93,16 @@ mark { background:yellow; padding:0 2px; }
   <select id="relCol"></select>
   <input id="relFuzzy" type="number" value="70">
 
-  <button onclick="startSearch()">Search</button>
+  <button id="searchBtn" onclick="startSearch()">Search</button>
   <button class="secondary" onclick="clearSearch()">Clear</button>
 </div>
 
-<div id="status">Upload Excel to begin</div>
+<div id="status">Choose Excel and click Upload</div>
+
+<div id="loader">
+  <span class="spinner"></span>
+  <span id="loaderText">Loading…</span>
+</div>
 
 <div id="wrap">
   <table id="table"></table>
@@ -91,11 +117,25 @@ mark { background:yellow; padding:0 2px; }
 <script>
 let preview=[], rows=[], page=1, pages=0, selected=0;
 
+function showLoader(text){
+  loaderText.innerText=text;
+  loader.style.display="block";
+  uploadBtn.disabled=true;
+  searchBtn.disabled=true;
+}
+
+function hideLoader(msg){
+  loader.style.display="none";
+  uploadBtn.disabled=false;
+  searchBtn.disabled=false;
+  status.innerText=msg;
+}
+
 /* ---------- UPLOAD ---------- */
 async function uploadExcel(){
-  if(!file.files.length){ alert("Choose Excel"); return; }
+  if(!file.files.length){ status.innerText="Choose Excel first"; return; }
 
-  status.innerText="Please wait… Uploading Excel";
+  showLoader("Uploading Excel…");
 
   const fd=new FormData();
   fd.append("file",file.files[0]);
@@ -105,12 +145,10 @@ async function uploadExcel(){
 
   preview=data.preview;
   rows=preview;
-
   fillDropdowns(data.columns);
 
-  status.innerText=`Loaded ${data.total} rows (preview)`;
+  hideLoader(`Loaded ${data.total} rows (preview)`);
   pageInfo.innerText="Preview";
-
   render(rows);
 }
 
@@ -118,16 +156,22 @@ async function uploadExcel(){
 function startSearch(){ page=1; fetchPage(); }
 
 async function fetchPage(){
-  if(!name.value){ alert("Enter name"); return; }
+  const nameVal=name.value.trim();
+  const relVal=relation.value.trim();
 
-  status.innerText="Please wait… Searching";
+  if(!nameVal && !relVal){
+    status.innerText="Enter Name or Relation to search";
+    return;
+  }
+
+  showLoader("Searching…");
 
   const res=await fetch("/search",{
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({
-      name:name.value,
-      relation:relation.value,
+      name:nameVal,
+      relation:relVal,
       name_col:nameCol.value,
       rel_col:relCol.value,
       name_fuzzy:nameFuzzy.value,
@@ -141,9 +185,8 @@ async function fetchPage(){
   pages=data.pages;
   selected=0;
 
-  status.innerText=`${data.total} results found`;
+  hideLoader(`${data.total} results found`);
   pageInfo.innerText=`Page ${page} / ${pages}`;
-
   render(rows);
 }
 
