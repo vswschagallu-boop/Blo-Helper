@@ -6,84 +6,36 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
-body {
-    font-family: Arial, sans-serif;
-    margin: 0;
-    padding: 12px;
-    background: #f7f7f7;
-}
-
-h2 { margin: 4px 0 10px 0; }
+body { font-family: Arial; margin: 12px; background:#f7f7f7; }
+h2 { margin: 6px 0; }
 
 .controls {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    background: #ffffff;
-    padding: 10px;
-    border-radius: 6px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+    display:flex; flex-wrap:wrap; gap:8px;
+    background:#fff; padding:10px;
+    border-radius:6px; box-shadow:0 1px 4px rgba(0,0,0,.15);
 }
 
-.controls input,
-.controls button {
-    padding: 8px;
-    font-size: 14px;
+.controls input, .controls select, .controls button {
+    padding:8px; font-size:14px;
 }
 
-.controls button {
-    background: #1976d2;
-    color: white;
-    border: none;
-    border-radius: 4px;
-}
+.controls button { background:#1976d2; color:white; border:none; border-radius:4px; }
+.controls button.secondary { background:#555; }
 
-.controls button.secondary {
-    background: #555;
-}
+#status { margin:10px 0; color:#1976d2; }
 
-#status {
-    margin: 10px 0;
-    color: #1976d2;
-    font-size: 14px;
-}
+#wrap { background:#fff; border:1px solid #aaa; border-radius:4px; max-height:65vh; overflow:auto; }
 
-#wrap {
-    background: white;
-    border: 1px solid #aaa;
-    border-radius: 4px;
-    max-height: 65vh;
-    overflow: auto;
-}
+table { border-collapse:collapse; width:100%; }
+th, td { border:1px solid #ccc; padding:6px; white-space:nowrap; }
+th { background:#eee; position:sticky; top:0; z-index:2; }
 
-table {
-    border-collapse: collapse;
-    width: 100%;
-}
+tr.selected { background:#cce5ff; }
+mark { background:yellow; padding:0 2px; }
 
-th, td {
-    border: 1px solid #ccc;
-    padding: 6px;
-    white-space: nowrap;
-}
-
-th {
-    background: #eeeeee;
-    position: sticky;
-    top: 0;
-    z-index: 2;
-}
-
-.footer {
-    margin-top: 10px;
-    font-size: 12px;
-    color: #555;
-    text-align: center;
-}
-
-@media (max-width: 768px) {
-    .controls { flex-direction: column; }
-    .controls input, .controls button { width: 100%; }
+@media (max-width:768px){
+  .controls{flex-direction:column;}
+  .controls input,.controls select,.controls button{width:100%;}
 }
 </style>
 </head>
@@ -93,133 +45,146 @@ th {
 <h2>BLO Helper</h2>
 
 <div class="controls">
-    <input type="file" id="file" accept=".xlsx,.xls,.csv">
+    <input type="file" id="file">
 
     <button onclick="uploadExcel()">Upload Excel</button>
 
-    <input type="text" id="query" placeholder="Name">
+    <input type="text" id="name" placeholder="Name">
+    <select id="nameCol"></select>
+    <input type="number" id="nameFuzzy" value="70" min="40" max="100">
 
     <input type="text" id="relation" placeholder="Relation (optional)">
-
-    <input type="number" id="threshold" value="70" min="40" max="100">
+    <select id="relCol"></select>
+    <input type="number" id="relFuzzy" value="70" min="40" max="100">
 
     <button onclick="doSearch()">Search</button>
     <button class="secondary" onclick="clearSearch()">Clear</button>
 </div>
 
-<div id="status">Choose an Excel file and click Upload</div>
+<div id="status">Choose Excel file and click Upload</div>
 
 <div id="wrap">
     <table id="table"></table>
 </div>
 
-<div class="footer">
-    Created by Tharun, Contact- 8688963486
-</div>
-
 <script>
-let preview = [];
-let rows = [];
+let preview=[], rows=[], selectedIndex=0;
+
+function setLoading(msg){ status.innerText = msg; }
 
 /* ---------- UPLOAD ---------- */
-async function uploadExcel() {
-    const f = document.getElementById("file").files[0];
-    if (!f) {
-        alert("Please choose an Excel file first");
-        return;
-    }
+async function uploadExcel(){
+    const f=file.files[0];
+    if(!f){ alert("Choose Excel first"); return; }
 
-    const fd = new FormData();
-    fd.append("file", f);
+    setLoading("Please wait… Uploading Excel");
 
-    status.innerText = "Uploading Excel...";
+    const fd=new FormData();
+    fd.append("file",f);
 
-    const res = await fetch("/upload", {
-        method: "POST",
-        body: fd
-    });
+    const res=await fetch("/upload",{method:"POST",body:fd});
+    const data=await res.json();
 
-    const data = await res.json();
+    preview=data.preview;
+    rows=preview;
 
-    if (data.error) {
-        status.innerText = data.error;
-        return;
-    }
+    populateDropdowns(data.columns);
 
-    preview = data.preview;
-    rows = preview;
-
-    status.innerText =
-        `Loaded ${data.total} rows (showing first ${preview.length})`;
-
-    renderTable(rows);
+    setLoading(`Loaded ${data.total} rows (showing first ${preview.length})`);
+    render(rows);
 }
 
 /* ---------- SEARCH ---------- */
-async function doSearch() {
-    const name = query.value.trim();
-    const rel = relation.value.trim();
-
-    if (!name) {
-        alert("Enter name to search");
+async function doSearch(){
+    if(!name.value && !relation.value){
+        alert("Enter name or relation");
         return;
     }
 
-    status.innerText = "Searching entire Excel...";
+    setLoading("Please wait… Searching");
 
-    const res = await fetch("/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            query: name,
-            relation: rel,
-            threshold: threshold.value
+    const res=await fetch("/search",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+            name:name.value,
+            relation:relation.value,
+            name_col:nameCol.value,
+            rel_col:relCol.value,
+            name_fuzzy:nameFuzzy.value,
+            rel_fuzzy:relFuzzy.value
         })
     });
 
-    const data = await res.json();
-    rows = data.rows;
+    const data=await res.json();
+    rows=data.rows;
+    selectedIndex=0;
 
-    status.innerText = `${data.count} results found`;
-    renderTable(rows);
+    setLoading(`${data.count} results found`);
+    render(rows);
 }
 
 /* ---------- CLEAR ---------- */
-function clearSearch() {
-    query.value = "";
-    relation.value = "";
-    rows = preview;
-    status.innerText = `Showing preview (${rows.length} rows)`;
-    renderTable(rows);
+function clearSearch(){
+    name.value=""; relation.value="";
+    rows=preview; selectedIndex=0;
+    setLoading(`Showing preview (${rows.length} rows)`);
+    render(rows);
 }
 
-/* ---------- RENDER ---------- */
-function renderTable(data) {
-    const table = document.getElementById("table");
-    table.innerHTML = "";
+/* ---------- UI HELPERS ---------- */
+function populateDropdowns(cols){
+    nameCol.innerHTML="<option value='ALL'>All Columns</option>";
+    relCol.innerHTML="<option value='ALL'>All Columns</option>";
+    cols.forEach(c=>{
+        nameCol.innerHTML+=`<option>${c}</option>`;
+        relCol.innerHTML+=`<option>${c}</option>`;
+    });
+}
 
-    if (!data || data.length === 0) return;
+function render(data){
+    table.innerHTML="";
+    if(!data.length)return;
 
-    const headers = Object.keys(data[0]);
+    const headers=Object.keys(data[0]).filter(h=>h!="_matched");
 
-    // Header
-    let tr = document.createElement("tr");
-    headers.forEach(h => {
-        let th = document.createElement("th");
-        th.innerText = h;
-        tr.appendChild(th);
+    let tr=document.createElement("tr");
+    headers.forEach(h=>{
+        let th=document.createElement("th");
+        th.innerText=h; tr.appendChild(th);
     });
     table.appendChild(tr);
 
-    // Rows
-    data.forEach(r => {
-        let row = document.createElement("tr");
-        headers.forEach(h => {
-            let td = document.createElement("td");
-            td.innerText = r[h];
+    data.forEach((r,i)=>{
+        let row=document.createElement("tr");
+        let matched=r._matched||[];
+
+        headers.forEach(h=>{
+            let td=document.createElement("td");
+            td.innerHTML=highlight(r[h],matched);
             row.appendChild(td);
         });
+
+        row.onclick=()=>selectRow(i);
         table.appendChild(row);
+    });
+
+    highlightRow();
+}
+
+function highlight(text,matched){
+    return String(text).split(/\s+/).map(w=>{
+        return matched.includes(w.toLowerCase())?`<mark>${w}</mark>`:w;
+    }).join(" ");
+}
+
+function selectRow(i){
+    selectedIndex=i; highlightRow();
+}
+
+function highlightRow(){
+    [...table.rows].forEach((r,i)=>{
+        r.classList.toggle("selected",i===selectedIndex+1);
     });
 }
 </script>
