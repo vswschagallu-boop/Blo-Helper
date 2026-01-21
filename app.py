@@ -15,21 +15,18 @@ def normalize(text):
     return str(text).lower().strip()
 
 
-def word_match(q_word, cell_text, threshold):
-    q = normalize(q_word)
-    words = normalize(cell_text).split()
-
-    for w in words:
+def word_ok(qw, cell, threshold):
+    for w in normalize(cell).split():
         if threshold == 100:
-            if q == w:
+            if qw == w:
                 return True
         else:
-            if fuzz.partial_ratio(q, w) >= threshold:
+            if fuzz.partial_ratio(qw, w) >= threshold:
                 return True
     return False
 
 
-def row_match(words, cells, threshold):
+def row_ok(words, cells, threshold):
     matched = set()
     for qw in words:
         found = False
@@ -85,6 +82,7 @@ def search():
         return jsonify({"total": 0, "pages": 0, "rows": []})
 
     data = request.json
+
     name = data.get("name", "").strip()
     relation = data.get("relation", "").strip()
     name_col = data.get("name_col", "ALL")
@@ -99,37 +97,51 @@ def search():
     name_words = normalize(name).split()
     rel_words = normalize(relation).split() if relation else []
 
-    matches = []
-
-    for _, row in df.iterrows():
-        # name cells
-        name_cells = [str(v) for v in row.values] if name_col == "ALL" else [str(row.get(name_col, ""))]
-        ok_name, matched = row_match(name_words, name_cells, name_fuzzy)
-        if not ok_name:
-            continue
-
-        # relation cells
-        if rel_words:
-            rel_cells = [str(v) for v in row.values] if rel_col == "ALL" else [str(row.get(rel_col, ""))]
-            ok_rel, rel_matched = row_match(rel_words, rel_cells, rel_fuzzy)
-            if not ok_rel:
-                continue
-            matched |= rel_matched
-
-        r = row.to_dict()
-        r["_matched"] = list(matched)
-        matches.append(r)
-
-    total = len(matches)
-    pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+    total_matches = 0
+    page_rows = []
 
     start = (page - 1) * PAGE_SIZE
     end = start + PAGE_SIZE
 
+    for _, row in df.iterrows():
+        # ---- NAME CHECK ----
+        name_cells = (
+            [str(v) for v in row.values]
+            if name_col == "ALL"
+            else [str(row.get(name_col, ""))]
+        )
+
+        ok_name, matched = row_ok(name_words, name_cells, name_fuzzy)
+        if not ok_name:
+            continue
+
+        # ---- RELATION CHECK ----
+        if rel_words:
+            rel_cells = (
+                [str(v) for v in row.values]
+                if rel_col == "ALL"
+                else [str(row.get(rel_col, ""))]
+            )
+
+            ok_rel, rel_matched = row_ok(rel_words, rel_cells, rel_fuzzy)
+            if not ok_rel:
+                continue
+            matched |= rel_matched
+
+        # ---- COUNT & COLLECT PAGE ----
+        if start <= total_matches < end:
+            r = row.to_dict()
+            r["_matched"] = list(matched)
+            page_rows.append(r)
+
+        total_matches += 1
+
+    pages = (total_matches + PAGE_SIZE - 1) // PAGE_SIZE
+
     return jsonify({
-        "total": total,
+        "total": total_matches,
         "pages": pages,
-        "rows": matches[start:end]
+        "rows": page_rows
     })
 
 
