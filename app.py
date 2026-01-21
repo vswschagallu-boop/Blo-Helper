@@ -7,6 +7,7 @@ app = Flask(__name__)
 
 df = None
 PREVIEW_LIMIT = 200
+PAGE_SIZE = 50
 
 
 # ---------- UTIL ----------
@@ -14,34 +15,36 @@ def normalize(text):
     return str(text).lower().strip()
 
 
-def word_match(q_word, cell_text, threshold):
+def exact_word_match(q_word, cell_text):
     q = normalize(q_word)
-    for w in normalize(cell_text).split():
-        if threshold == 100:
-            if q == w:
-                return True
-        else:
-            if fuzz.partial_ratio(q, w) >= threshold:
-                return True
+    words = normalize(cell_text).split()
+    return q in words
+
+
+def fuzzy_word_match(q_word, cell_text, threshold):
+    q = normalize(q_word)
+    words = normalize(cell_text).split()
+    for w in words:
+        if fuzz.partial_ratio(q, w) >= threshold:
+            return True
     return False
 
 
-def row_match(words, cells, threshold):
-    matched = set()
-    for qw in words:
+def row_matches(query_words, row_cells, threshold):
+    for qw in query_words:
         found = False
-        for cell in cells:
-            for w in normalize(cell).split():
-                ok = (qw == w) if threshold == 100 else fuzz.partial_ratio(qw, w) >= threshold
-                if ok:
-                    matched.add(w)
+        for cell in row_cells:
+            if threshold == 100:
+                if exact_word_match(qw, cell):
                     found = True
-                    break
+            else:
+                if fuzzy_word_match(qw, cell, threshold):
+                    found = True
             if found:
                 break
         if not found:
-            return False, set()
-    return True, matched
+            return False
+    return True
 
 
 # ---------- ROUTES ----------
@@ -66,12 +69,10 @@ def upload():
     df.fillna("", inplace=True)
 
     preview = df.head(PREVIEW_LIMIT).to_dict(orient="records")
-    columns = list(df.columns)
 
     return jsonify({
         "total": len(df),
-        "preview": preview,
-        "columns": columns
+        "preview": preview
     })
 
 
@@ -79,51 +80,45 @@ def upload():
 def search():
     global df
     if df is None:
-        return jsonify({"count": 0, "rows": []})
+        return jsonify({"total": 0, "pages": 0, "rows": []})
 
     data = request.json
-    name_text = data.get("name", "").strip()
-    rel_text = data.get("relation", "").strip()
-    name_col = data.get("name_col", "ALL")
-    rel_col = data.get("rel_col", "ALL")
-    name_fuzzy = int(data.get("name_fuzzy", 70))
-    rel_fuzzy = int(data.get("rel_fuzzy", 70))
+    query = data.get("query", "").strip()
+    relation = data.get("relation", "").strip()
+    threshold = int(data.get("threshold", 70))
+    page = int(data.get("page", 1))
 
-    name_words = normalize(name_text).split() if name_text else []
-    rel_words = normalize(rel_text).split() if rel_text else []
+    if not query:
+        return jsonify({"total": 0, "pages": 0, "rows": []})
 
-    results = []
+    name_words = normalize(query).split()
+    rel_words = normalize(relation).split() if relation else []
 
+    matches = []
+
+    # 🔍 SEARCH ENTIRE EXCEL
     for _, row in df.iterrows():
-        # ---- NAME CELLS ----
-        if name_col == "ALL":
-            name_cells = [str(v) for v in row.values]
-        else:
-            name_cells = [str(row.get(name_col, ""))]
+        row_cells = [str(v) for v in row.values]
 
-        ok_name, matched = row_match(name_words, name_cells, name_fuzzy) if name_words else (True, set())
-        if not ok_name:
+        if not row_matches(name_words, row_cells, threshold):
             continue
 
-        # ---- RELATION CELLS ----
-        if rel_words:
-            if rel_col == "ALL":
-                rel_cells = [str(v) for v in row.values]
-            else:
-                rel_cells = [str(row.get(rel_col, ""))]
+        if rel_words and not row_matches(rel_words, row_cells, threshold):
+            continue
 
-            ok_rel, rel_matched = row_match(rel_words, rel_cells, rel_fuzzy)
-            if not ok_rel:
-                continue
-            matched |= rel_matched
+        matches.append(row.to_dict())
 
-        r = row.to_dict()
-        r["_matched"] = list(matched)
-        results.append(r)
+    total = len(matches)
+    pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+
+    start = (page - 1) * PAGE_SIZE
+    end = start + PAGE_SIZE
+    page_rows = matches[start:end]
 
     return jsonify({
-        "count": len(results),
-        "rows": results
+        "total": total,
+        "pages": pages,
+        "rows": page_rows
     })
 
 
