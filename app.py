@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from rapidfuzz import fuzz
+import os
 
 app = Flask(__name__)
 
@@ -66,7 +67,6 @@ def upload():
 
     df.fillna("", inplace=True)
 
-    # ONLY preview rows
     preview = df.head(PREVIEW_LIMIT).to_dict(orient="records")
 
     return jsonify({
@@ -79,7 +79,7 @@ def upload():
 def search():
     global df
     if df is None:
-        return jsonify([])
+        return jsonify({"count": 0, "rows": []})
 
     data = request.json
     query = data.get("query", "").strip()
@@ -87,14 +87,13 @@ def search():
     threshold = int(data.get("threshold", 70))
 
     if not query:
-        return jsonify([])
+        return jsonify({"count": 0, "rows": []})
 
     name_words = normalize(query).split()
     rel_words = normalize(relation).split() if relation else []
 
     results = []
 
-    # 🔥 SEARCH ENTIRE EXCEL (NO LIMIT)
     for _, row in df.iterrows():
         row_cells = [str(v) for v in row.values]
 
@@ -113,7 +112,6 @@ def search():
 
 
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 10000))
     print("Created by Tharun, Contact- 8688963486")
     app.run(host="0.0.0.0", port=port)
