@@ -1,31 +1,78 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <title>BLO Helper</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
-body { font-family: Arial; margin: 15px; background:#f7f7f7; }
-button { padding: 10px 14px; font-size: 14px; }
-table { border-collapse: collapse; width: 100%; }
-th, td { border: 1px solid #ccc; padding: 6px; }
-th { background: #eee; position: sticky; top: 0; }
-#wrap { max-height: 60vh; overflow: auto; border:1px solid #aaa; background:#fff; }
-#status { margin: 10px 0; color: #1976d2; }
+body { font-family: Arial; margin: 12px; background:#f7f7f7; }
+h2 { margin: 6px 0; }
+
+.controls {
+    display:flex; flex-wrap:wrap; gap:8px;
+    background:#fff; padding:10px;
+    border-radius:6px; box-shadow:0 1px 4px rgba(0,0,0,.15);
+}
+
+.controls input, .controls select, .controls button {
+    padding:8px; font-size:14px;
+}
+
+.controls button {
+    background:#1976d2; color:white;
+    border:none; border-radius:4px;
+}
+
+.controls button.secondary { background:#555; }
+
+#status { margin:10px 0; color:#1976d2; }
+
+#wrap {
+    background:white;
+    border:1px solid #aaa;
+    border-radius:4px;
+    max-height:65vh;
+    overflow:auto;
+}
+
+table { border-collapse:collapse; width:100%; }
+th, td { border:1px solid #ccc; padding:6px; white-space:nowrap; }
+th { background:#eee; position:sticky; top:0; }
+
+tr.selected { background:#cce5ff; }
+mark { background:yellow; padding:0 2px; }
+
+.pagination {
+    display:flex; justify-content:center; gap:10px; margin-top:8px;
+}
+
+@media (max-width:768px){
+  .controls{flex-direction:column;}
+  .controls input,.controls select,.controls button{width:100%;}
+}
 </style>
 </head>
 
 <body>
 
 <h2>BLO Helper</h2>
-<p><b>Created by Tharun, Contact- 8688963486</b></p>
 
-<!-- STEP 1 -->
-<input type="file" id="file" accept=".xlsx,.xls,.csv">
+<div class="controls">
+    <input type="file" id="file">
+    <button onclick="uploadExcel()">Upload Excel</button>
 
-<!-- STEP 2 -->
-<button onclick="uploadExcel()">Upload Excel</button>
+    <input type="text" id="name" placeholder="Name">
+    <select id="nameCol"></select>
+    <input type="number" id="nameFuzzy" value="70">
+
+    <input type="text" id="relation" placeholder="Relation">
+    <select id="relCol"></select>
+    <input type="number" id="relFuzzy" value="70">
+
+    <button onclick="startSearch()">Search</button>
+    <button class="secondary" onclick="clearSearch()">Clear</button>
+</div>
 
 <div id="status">Choose Excel file and click Upload</div>
 
@@ -33,66 +80,136 @@ th { background: #eee; position: sticky; top: 0; }
     <table id="table"></table>
 </div>
 
+<div class="pagination">
+    <button onclick="prevPage()">◀ Prev</button>
+    <span id="pageInfo">Page 0 / 0</span>
+    <button onclick="nextPage()">Next ▶</button>
+</div>
+
+<div style="font-size:12px;text-align:center;margin-top:6px;">
+Created by Tharun, Contact- 8688963486
+</div>
+
 <script>
-async function uploadExcel() {
-    const fileInput = document.getElementById("file");
-    const status = document.getElementById("status");
-    const table = document.getElementById("table");
+let preview=[], rows=[], page=1, pages=0;
 
-    if (!fileInput.files.length) {
-        alert("Please choose an Excel file first");
-        return;
-    }
+/* ---------- UPLOAD ---------- */
+async function uploadExcel(){
+    const f=file.files[0];
+    if(!f){ alert("Choose Excel first"); return; }
 
-    const fd = new FormData();
-    fd.append("file", fileInput.files[0]);
+    status.innerText="Please wait… Uploading Excel";
 
-    status.innerText = "Uploading Excel, please wait...";
+    const fd=new FormData();
+    fd.append("file",f);
 
-    const res = await fetch("/upload", {
-        method: "POST",
-        body: fd
-    });
+    const res=await fetch("/upload",{method:"POST",body:fd});
+    const data=await res.json();
 
-    const data = await res.json();
+    preview=data.preview;
+    rows=preview;
+    populateDropdowns(data.columns);
 
-    if (data.error) {
-        status.innerText = "Error: " + data.error;
-        return;
-    }
-
-    status.innerText =
-        `Excel loaded successfully. Total rows: ${data.total}. Showing first ${data.preview.length}.`;
-
-    renderTable(data.preview);
+    status.innerText=`Loaded ${data.total} rows (showing preview)`;
+    pageInfo.innerText="Preview";
+    render(rows);
 }
 
-function renderTable(rows) {
-    const table = document.getElementById("table");
-    table.innerHTML = "";
+/* ---------- SEARCH ---------- */
+function startSearch(){ page=1; fetchPage(); }
 
-    if (!rows || rows.length === 0) return;
+async function fetchPage(){
+    if(!name.value){ alert("Enter name"); return; }
 
-    const headers = Object.keys(rows[0]);
+    status.innerText="Please wait… Searching";
 
-    // Header row
-    let tr = document.createElement("tr");
-    headers.forEach(h => {
-        let th = document.createElement("th");
-        th.innerText = h;
-        tr.appendChild(th);
+    const res=await fetch("/search",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+            name:name.value,
+            relation:relation.value,
+            name_col:nameCol.value,
+            rel_col:relCol.value,
+            name_fuzzy:nameFuzzy.value,
+            rel_fuzzy:relFuzzy.value,
+            page:page
+        })
+    });
+
+    const data=await res.json();
+    rows=data.rows;
+    pages=data.pages;
+
+    status.innerText=`${data.total} results found`;
+    pageInfo.innerText=`Page ${page} / ${pages}`;
+    render(rows);
+}
+
+/* ---------- PAGINATION ---------- */
+function nextPage(){ if(page<pages){ page++; fetchPage(); } }
+function prevPage(){ if(page>1){ page--; fetchPage(); } }
+
+/* ---------- CLEAR ---------- */
+function clearSearch(){
+    name.value=""; relation.value="";
+    rows=preview; page=1; pages=0;
+    status.innerText=`Showing preview (${rows.length} rows)`;
+    pageInfo.innerText="Preview";
+    render(rows);
+}
+
+/* ---------- RENDER ---------- */
+function render(data){
+    table.innerHTML="";
+    if(!data.length)return;
+
+    const headers=Object.keys(data[0]).filter(h=>h!="_matched");
+
+    let tr=document.createElement("tr");
+    headers.forEach(h=>{
+        let th=document.createElement("th");
+        th.innerText=h; tr.appendChild(th);
     });
     table.appendChild(tr);
 
-    // Data rows
-    rows.forEach(r => {
-        let row = document.createElement("tr");
-        headers.forEach(h => {
-            let td = document.createElement("td");
-            td.innerText = r[h];
+    data.forEach((r,i)=>{
+        let row=document.createElement("tr");
+        let matched=r._matched||[];
+
+        headers.forEach(h=>{
+            let td=document.createElement("td");
+            td.innerHTML=highlight(r[h],matched);
             row.appendChild(td);
         });
+
+        row.onclick=()=>selectRow(i);
         table.appendChild(row);
+    });
+
+    highlightRow();
+}
+
+let selectedIndex=0;
+function selectRow(i){ selectedIndex=i; highlightRow(); }
+function highlightRow(){
+    [...table.rows].forEach((r,i)=>{
+        r.classList.toggle("selected",i===selectedIndex+1);
+    });
+}
+
+function highlight(text,matched){
+    return String(text).split(/\s+/).map(w=>{
+        return matched.includes(w.toLowerCase())?`<mark>${w}</mark>`:w;
+    }).join(" ");
+}
+
+function populateDropdowns(cols){
+    nameCol.innerHTML="<option value='ALL'>All Columns</option>";
+    relCol.innerHTML="<option value='ALL'>All Columns</option>";
+    cols.forEach(c=>{
+        nameCol.innerHTML+=`<option>${c}</option>`;
+        relCol.innerHTML+=`<option>${c}</option>`;
     });
 }
 </script>
