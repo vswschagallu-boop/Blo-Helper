@@ -15,19 +15,9 @@ def normalize(text):
     return str(text).lower().strip()
 
 
-def word_ok(qw, cell, threshold):
-    for w in normalize(cell).split():
-        if threshold == 100:
-            if qw == w:
-                return True
-        else:
-            if fuzz.partial_ratio(qw, w) >= threshold:
-                return True
-    return False
-
-
-def row_ok(words, cells, threshold):
+def row_match(words, cells, threshold):
     matched = set()
+
     for qw in words:
         found = False
         for cell in cells:
@@ -41,6 +31,7 @@ def row_ok(words, cells, threshold):
                 break
         if not found:
             return False, set()
+
     return True, matched
 
 
@@ -91,10 +82,10 @@ def search():
     rel_fuzzy = int(data.get("rel_fuzzy", 70))
     page = int(data.get("page", 1))
 
-    if not name:
+    if not name and not relation:
         return jsonify({"total": 0, "pages": 0, "rows": []})
 
-    name_words = normalize(name).split()
+    name_words = normalize(name).split() if name else []
     rel_words = normalize(relation).split() if relation else []
 
     total_matches = 0
@@ -104,18 +95,21 @@ def search():
     end = start + PAGE_SIZE
 
     for _, row in df.iterrows():
-        # ---- NAME CHECK ----
-        name_cells = (
-            [str(v) for v in row.values]
-            if name_col == "ALL"
-            else [str(row.get(name_col, ""))]
-        )
+        # ----- NAME -----
+        if name_words:
+            name_cells = (
+                [str(v) for v in row.values]
+                if name_col == "ALL"
+                else [str(row.get(name_col, ""))]
+            )
 
-        ok_name, matched = row_ok(name_words, name_cells, name_fuzzy)
-        if not ok_name:
-            continue
+            ok_name, matched = row_match(name_words, name_cells, name_fuzzy)
+            if not ok_name:
+                continue
+        else:
+            matched = set()
 
-        # ---- RELATION CHECK ----
+        # ----- RELATION -----
         if rel_words:
             rel_cells = (
                 [str(v) for v in row.values]
@@ -123,12 +117,11 @@ def search():
                 else [str(row.get(rel_col, ""))]
             )
 
-            ok_rel, rel_matched = row_ok(rel_words, rel_cells, rel_fuzzy)
+            ok_rel, rel_matched = row_match(rel_words, rel_cells, rel_fuzzy)
             if not ok_rel:
                 continue
             matched |= rel_matched
 
-        # ---- COUNT & COLLECT PAGE ----
         if start <= total_matches < end:
             r = row.to_dict()
             r["_matched"] = list(matched)
