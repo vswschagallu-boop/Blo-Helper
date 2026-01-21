@@ -1,13 +1,53 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
+from rapidfuzz import fuzz
 import os
 
 app = Flask(__name__)
 
 df = None
 PREVIEW_LIMIT = 200
+PAGE_SIZE = 50
 
 
+# ---------- UTIL ----------
+def normalize(text):
+    return str(text).lower().strip()
+
+
+def word_match(q_word, cell_text, threshold):
+    q = normalize(q_word)
+    words = normalize(cell_text).split()
+
+    for w in words:
+        if threshold == 100:
+            if q == w:
+                return True
+        else:
+            if fuzz.partial_ratio(q, w) >= threshold:
+                return True
+    return False
+
+
+def row_match(words, cells, threshold):
+    matched = set()
+    for qw in words:
+        found = False
+        for cell in cells:
+            for w in normalize(cell).split():
+                ok = (qw == w) if threshold == 100 else fuzz.partial_ratio(qw, w) >= threshold
+                if ok:
+                    matched.add(w)
+                    found = True
+                    break
+            if found:
+                break
+        if not found:
+            return False, set()
+    return True, matched
+
+
+# ---------- ROUTES ----------
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -21,23 +61,76 @@ def upload():
     if not file:
         return jsonify({"error": "No file uploaded"})
 
-    try:
-        if file.filename.lower().endswith(".csv"):
-            df = pd.read_csv(file, dtype=str)
-        else:
-            df = pd.read_excel(file, dtype=str)
+    if file.filename.lower().endswith(".csv"):
+        df = pd.read_csv(file, dtype=str)
+    else:
+        df = pd.read_excel(file, dtype=str)
 
-        df.fillna("", inplace=True)
+    df.fillna("", inplace=True)
 
-        preview = df.head(PREVIEW_LIMIT).to_dict(orient="records")
+    preview = df.head(PREVIEW_LIMIT).to_dict(orient="records")
+    columns = list(df.columns)
 
-        return jsonify({
-            "total": len(df),
-            "preview": preview
-        })
+    return jsonify({
+        "total": len(df),
+        "preview": preview,
+        "columns": columns
+    })
 
-    except Exception as e:
-        return jsonify({"error": str(e)})
+
+@app.route("/search", methods=["POST"])
+def search():
+    global df
+    if df is None:
+        return jsonify({"total": 0, "pages": 0, "rows": []})
+
+    data = request.json
+    name = data.get("name", "").strip()
+    relation = data.get("relation", "").strip()
+    name_col = data.get("name_col", "ALL")
+    rel_col = data.get("rel_col", "ALL")
+    name_fuzzy = int(data.get("name_fuzzy", 70))
+    rel_fuzzy = int(data.get("rel_fuzzy", 70))
+    page = int(data.get("page", 1))
+
+    if not name:
+        return jsonify({"total": 0, "pages": 0, "rows": []})
+
+    name_words = normalize(name).split()
+    rel_words = normalize(relation).split() if relation else []
+
+    matches = []
+
+    for _, row in df.iterrows():
+        # name cells
+        name_cells = [str(v) for v in row.values] if name_col == "ALL" else [str(row.get(name_col, ""))]
+        ok_name, matched = row_match(name_words, name_cells, name_fuzzy)
+        if not ok_name:
+            continue
+
+        # relation cells
+        if rel_words:
+            rel_cells = [str(v) for v in row.values] if rel_col == "ALL" else [str(row.get(rel_col, ""))]
+            ok_rel, rel_matched = row_match(rel_words, rel_cells, rel_fuzzy)
+            if not ok_rel:
+                continue
+            matched |= rel_matched
+
+        r = row.to_dict()
+        r["_matched"] = list(matched)
+        matches.append(r)
+
+    total = len(matches)
+    pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+
+    start = (page - 1) * PAGE_SIZE
+    end = start + PAGE_SIZE
+
+    return jsonify({
+        "total": total,
+        "pages": pages,
+        "rows": matches[start:end]
+    })
 
 
 if __name__ == "__main__":
