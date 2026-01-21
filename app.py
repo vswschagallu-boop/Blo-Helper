@@ -14,36 +14,34 @@ def normalize(text):
     return str(text).lower().strip()
 
 
-def exact_word_match(q_word, cell_text):
+def word_match(q_word, cell_text, threshold):
     q = normalize(q_word)
-    words = normalize(cell_text).split()
-    return q in words
-
-
-def fuzzy_word_match(q_word, cell_text, threshold):
-    q = normalize(q_word)
-    words = normalize(cell_text).split()
-    for w in words:
-        if fuzz.partial_ratio(q, w) >= threshold:
-            return True
+    for w in normalize(cell_text).split():
+        if threshold == 100:
+            if q == w:
+                return True
+        else:
+            if fuzz.partial_ratio(q, w) >= threshold:
+                return True
     return False
 
 
-def row_matches(query_words, row_cells, threshold):
-    for qw in query_words:
+def row_match(words, cells, threshold):
+    matched = set()
+    for qw in words:
         found = False
-        for cell in row_cells:
-            if threshold == 100:
-                if exact_word_match(qw, cell):
+        for cell in cells:
+            for w in normalize(cell).split():
+                ok = (qw == w) if threshold == 100 else fuzz.partial_ratio(qw, w) >= threshold
+                if ok:
+                    matched.add(w)
                     found = True
-            else:
-                if fuzzy_word_match(qw, cell, threshold):
-                    found = True
+                    break
             if found:
                 break
         if not found:
-            return False
-    return True
+            return False, set()
+    return True, matched
 
 
 # ---------- ROUTES ----------
@@ -68,10 +66,12 @@ def upload():
     df.fillna("", inplace=True)
 
     preview = df.head(PREVIEW_LIMIT).to_dict(orient="records")
+    columns = list(df.columns)
 
     return jsonify({
         "total": len(df),
-        "preview": preview
+        "preview": preview,
+        "columns": columns
     })
 
 
@@ -82,28 +82,44 @@ def search():
         return jsonify({"count": 0, "rows": []})
 
     data = request.json
-    query = data.get("query", "").strip()
-    relation = data.get("relation", "").strip()
-    threshold = int(data.get("threshold", 70))
+    name_text = data.get("name", "").strip()
+    rel_text = data.get("relation", "").strip()
+    name_col = data.get("name_col", "ALL")
+    rel_col = data.get("rel_col", "ALL")
+    name_fuzzy = int(data.get("name_fuzzy", 70))
+    rel_fuzzy = int(data.get("rel_fuzzy", 70))
 
-    if not query:
-        return jsonify({"count": 0, "rows": []})
-
-    name_words = normalize(query).split()
-    rel_words = normalize(relation).split() if relation else []
+    name_words = normalize(name_text).split() if name_text else []
+    rel_words = normalize(rel_text).split() if rel_text else []
 
     results = []
 
     for _, row in df.iterrows():
-        row_cells = [str(v) for v in row.values]
+        # ---- NAME CELLS ----
+        if name_col == "ALL":
+            name_cells = [str(v) for v in row.values]
+        else:
+            name_cells = [str(row.get(name_col, ""))]
 
-        if not row_matches(name_words, row_cells, threshold):
+        ok_name, matched = row_match(name_words, name_cells, name_fuzzy) if name_words else (True, set())
+        if not ok_name:
             continue
 
-        if rel_words and not row_matches(rel_words, row_cells, threshold):
-            continue
+        # ---- RELATION CELLS ----
+        if rel_words:
+            if rel_col == "ALL":
+                rel_cells = [str(v) for v in row.values]
+            else:
+                rel_cells = [str(row.get(rel_col, ""))]
 
-        results.append(row.to_dict())
+            ok_rel, rel_matched = row_match(rel_words, rel_cells, rel_fuzzy)
+            if not ok_rel:
+                continue
+            matched |= rel_matched
+
+        r = row.to_dict()
+        r["_matched"] = list(matched)
+        results.append(r)
 
     return jsonify({
         "count": len(results),
