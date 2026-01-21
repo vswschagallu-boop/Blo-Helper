@@ -6,20 +6,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
-body { font-family: Arial; margin: 12px; background: #f7f7f7; }
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 12px;
+    background: #f7f7f7;
+}
+
 h2 { margin: 4px 0 10px 0; }
 
 .controls {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    background: #fff;
+    background: #ffffff;
     padding: 10px;
     border-radius: 6px;
     box-shadow: 0 1px 4px rgba(0,0,0,0.15);
 }
 
-.controls input, .controls button {
+.controls input,
+.controls button {
     padding: 8px;
     font-size: 14px;
 }
@@ -35,7 +42,11 @@ h2 { margin: 4px 0 10px 0; }
     background: #555;
 }
 
-#status { margin: 10px 0; color: #1976d2; }
+#status {
+    margin: 10px 0;
+    color: #1976d2;
+    font-size: 14px;
+}
 
 #wrap {
     background: white;
@@ -45,11 +56,30 @@ h2 { margin: 4px 0 10px 0; }
     overflow: auto;
 }
 
-table { border-collapse: collapse; width: 100%; }
-th, td { border: 1px solid #ccc; padding: 6px; white-space: nowrap; }
-th { background: #eee; position: sticky; top: 0; }
+table {
+    border-collapse: collapse;
+    width: 100%;
+}
 
-.footer { margin-top: 10px; font-size: 12px; color: #555; text-align: center; }
+th, td {
+    border: 1px solid #ccc;
+    padding: 6px;
+    white-space: nowrap;
+}
+
+th {
+    background: #eeeeee;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+.footer {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #555;
+    text-align: center;
+}
 
 @media (max-width: 768px) {
     .controls { flex-direction: column; }
@@ -63,15 +93,21 @@ th { background: #eee; position: sticky; top: 0; }
 <h2>BLO Helper</h2>
 
 <div class="controls">
-    <input type="file" id="file">
+    <input type="file" id="file" accept=".xlsx,.xls,.csv">
+
+    <button onclick="uploadExcel()">Upload Excel</button>
+
     <input type="text" id="query" placeholder="Name">
+
     <input type="text" id="relation" placeholder="Relation (optional)">
+
     <input type="number" id="threshold" value="70" min="40" max="100">
+
     <button onclick="doSearch()">Search</button>
     <button class="secondary" onclick="clearSearch()">Clear</button>
 </div>
 
-<div id="status">Upload Excel to begin</div>
+<div id="status">Choose an Excel file and click Upload</div>
 
 <div id="wrap">
     <table id="table"></table>
@@ -86,19 +122,29 @@ let preview = [];
 let rows = [];
 
 /* ---------- UPLOAD ---------- */
-document.getElementById("file").addEventListener("change", uploadExcel);
-
 async function uploadExcel() {
-    const f = file.files[0];
-    if (!f) return;
+    const f = document.getElementById("file").files[0];
+    if (!f) {
+        alert("Please choose an Excel file first");
+        return;
+    }
 
     const fd = new FormData();
     fd.append("file", f);
 
-    status.innerText = "Uploading Excel…";
+    status.innerText = "Uploading Excel...";
 
-    const res = await fetch("/upload", { method: "POST", body: fd });
+    const res = await fetch("/upload", {
+        method: "POST",
+        body: fd
+    });
+
     const data = await res.json();
+
+    if (data.error) {
+        status.innerText = data.error;
+        return;
+    }
 
     preview = data.preview;
     rows = preview;
@@ -119,7 +165,7 @@ async function doSearch() {
         return;
     }
 
-    status.innerText = "Searching entire Excel…";
+    status.innerText = "Searching entire Excel...";
 
     const res = await fetch("/search", {
         method: "POST",
@@ -134,7 +180,7 @@ async function doSearch() {
     const data = await res.json();
     rows = data.rows;
 
-    status.innerText = `${data.count} results found (from full Excel)`;
+    status.innerText = `${data.count} results found`;
     renderTable(rows);
 }
 
