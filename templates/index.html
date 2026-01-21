@@ -1,200 +1,95 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
 <title>BLO Helper</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
-body { font-family: Arial; margin: 12px; background:#f7f7f7; }
-h2 { margin: 6px 0; }
-
-.controls {
-    display:flex; flex-wrap:wrap; gap:8px;
-    background:#fff; padding:10px;
-    border-radius:6px; box-shadow:0 1px 4px rgba(0,0,0,.15);
-}
-
-.controls input, .controls button {
-    padding:8px; font-size:14px;
-}
-
-.controls button {
-    background:#1976d2; color:white;
-    border:none; border-radius:4px;
-}
-
-.controls button.secondary {
-    background:#555;
-}
-
-#status { margin:10px 0; color:#1976d2; }
-
-#wrap {
-    background:white;
-    border:1px solid #aaa;
-    border-radius:4px;
-    max-height:65vh;
-    overflow:auto;
-}
-
-table { border-collapse:collapse; width:100%; }
-th, td { border:1px solid #ccc; padding:6px; white-space:nowrap; }
-th { background:#eee; position:sticky; top:0; }
-
-.pagination {
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    gap:10px;
-    margin-top:10px;
-}
-
-@media (max-width:768px){
-  .controls{flex-direction:column;}
-  .controls input,.controls button{width:100%;}
-}
+body { font-family: Arial; margin: 15px; background:#f7f7f7; }
+button { padding: 10px 14px; font-size: 14px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #ccc; padding: 6px; }
+th { background: #eee; position: sticky; top: 0; }
+#wrap { max-height: 60vh; overflow: auto; border:1px solid #aaa; background:#fff; }
+#status { margin: 10px 0; color: #1976d2; }
 </style>
 </head>
 
 <body>
 
 <h2>BLO Helper</h2>
+<p><b>Created by Tharun, Contact- 8688963486</b></p>
 
-<div class="controls">
-    <input type="file" id="file">
-    <input type="text" id="query" placeholder="Name">
-    <input type="text" id="relation" placeholder="Relation (optional)">
-    <input type="number" id="threshold" value="70" min="40" max="100">
-    <button onclick="startSearch()">Search</button>
-    <button class="secondary" onclick="clearSearch()">Clear</button>
-</div>
+<!-- STEP 1 -->
+<input type="file" id="file" accept=".xlsx,.xls,.csv">
 
-<div id="status">Upload Excel to begin</div>
+<!-- STEP 2 -->
+<button onclick="uploadExcel()">Upload Excel</button>
+
+<div id="status">Choose Excel file and click Upload</div>
 
 <div id="wrap">
     <table id="table"></table>
 </div>
 
-<div class="pagination">
-    <button onclick="prevPage()">◀ Prev</button>
-    <span id="pageInfo">Page 0 / 0</span>
-    <button onclick="nextPage()">Next ▶</button>
-</div>
-
 <script>
-let preview = [];
-let rows = [];
-let currentPage = 1;
-let totalPages = 0;
+async function uploadExcel() {
+    const fileInput = document.getElementById("file");
+    const status = document.getElementById("status");
+    const table = document.getElementById("table");
 
-/* ---------- UPLOAD ---------- */
-document.getElementById("file").addEventListener("change", uploadExcel);
-
-async function uploadExcel(){
-    const f = file.files[0];
-    if(!f) return;
-
-    const fd = new FormData();
-    fd.append("file", f);
-
-    status.innerText = "Uploading Excel...";
-
-    const res = await fetch("/upload", { method:"POST", body:fd });
-    const data = await res.json();
-
-    preview = data.preview;
-    rows = preview;
-
-    status.innerText =
-        `Loaded ${data.total} rows (showing preview)`;
-
-    renderTable(rows);
-    pageInfo.innerText = "Preview";
-}
-
-/* ---------- SEARCH ---------- */
-async function startSearch(){
-    currentPage = 1;
-    fetchPage();
-}
-
-async function fetchPage(){
-    const name = query.value.trim();
-    if(!name){
-        alert("Enter name to search");
+    if (!fileInput.files.length) {
+        alert("Please choose an Excel file first");
         return;
     }
 
-    status.innerText = "Searching entire Excel...";
+    const fd = new FormData();
+    fd.append("file", fileInput.files[0]);
 
-    const res = await fetch("/search",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-            query:name,
-            relation:relation.value,
-            threshold:threshold.value,
-            page:currentPage
-        })
+    status.innerText = "Uploading Excel, please wait...";
+
+    const res = await fetch("/upload", {
+        method: "POST",
+        body: fd
     });
 
     const data = await res.json();
-    rows = data.rows;
-    totalPages = data.pages;
 
-    status.innerText = `${data.total} results found`;
-    pageInfo.innerText = `Page ${currentPage} / ${totalPages}`;
-
-    renderTable(rows);
-}
-
-function nextPage(){
-    if(currentPage < totalPages){
-        currentPage++;
-        fetchPage();
+    if (data.error) {
+        status.innerText = "Error: " + data.error;
+        return;
     }
+
+    status.innerText =
+        `Excel loaded successfully. Total rows: ${data.total}. Showing first ${data.preview.length}.`;
+
+    renderTable(data.preview);
 }
 
-function prevPage(){
-    if(currentPage > 1){
-        currentPage--;
-        fetchPage();
-    }
-}
+function renderTable(rows) {
+    const table = document.getElementById("table");
+    table.innerHTML = "";
 
-/* ---------- CLEAR ---------- */
-function clearSearch(){
-    query.value="";
-    relation.value="";
-    rows = preview;
-    currentPage = 1;
-    totalPages = 0;
-    status.innerText = "Showing preview";
-    pageInfo.innerText = "Preview";
-    renderTable(rows);
-}
+    if (!rows || rows.length === 0) return;
 
-/* ---------- RENDER ---------- */
-function renderTable(data){
-    table.innerHTML="";
-    if(!data || data.length===0) return;
+    const headers = Object.keys(rows[0]);
 
-    const headers = Object.keys(data[0]);
-
-    let tr=document.createElement("tr");
-    headers.forEach(h=>{
-        let th=document.createElement("th");
-        th.innerText=h;
+    // Header row
+    let tr = document.createElement("tr");
+    headers.forEach(h => {
+        let th = document.createElement("th");
+        th.innerText = h;
         tr.appendChild(th);
     });
     table.appendChild(tr);
 
-    data.forEach(r=>{
-        let row=document.createElement("tr");
-        headers.forEach(h=>{
-            let td=document.createElement("td");
-            td.innerText=r[h];
+    // Data rows
+    rows.forEach(r => {
+        let row = document.createElement("tr");
+        headers.forEach(h => {
+            let td = document.createElement("td");
+            td.innerText = r[h];
             row.appendChild(td);
         });
         table.appendChild(row);
