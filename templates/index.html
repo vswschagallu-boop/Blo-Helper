@@ -156,38 +156,40 @@ async function uploadExcel(){
 function startSearch(){ page=1; fetchPage(); }
 
 async function fetchPage(){
-  const nameVal=name.value.trim();
-  const relVal=relation.value.trim();
+    const nameVal = name.value.trim();
+    const relVal  = relation.value.trim();
 
-  if(!nameVal && !relVal){
-    status.innerText="Enter Name or Relation to search";
-    return;
-  }
+    // ✅ allow name-only, relation-only, or both
+    if(!nameVal && !relVal){
+        status.innerText = "Please enter Name or Relation to search";
+        return;
+    }
 
-  showLoader("Searching…");
+    showLoader("Searching…");
 
-  const res=await fetch("/search",{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({
-      name:nameVal,
-      relation:relVal,
-      name_col:nameCol.value,
-      rel_col:relCol.value,
-      name_fuzzy:nameFuzzy.value,
-      rel_fuzzy:relFuzzy.value,
-      page:page
-    })
-  });
+    const res = await fetch("/search",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+            name: nameVal,
+            relation: relVal,
+            name_col: nameCol.value,
+            rel_col: relCol.value,
+            name_fuzzy: nameFuzzy.value,
+            rel_fuzzy: relFuzzy.value,
+            page: page
+        })
+    });
 
-  const data=await res.json();
-  rows=data.rows;
-  pages=data.pages;
-  selected=0;
+    const data = await res.json();
+    rows = data.rows;
+    pages = data.pages;
+    selected = 0;
 
-  hideLoader(`${data.total} results found`);
-  pageInfo.innerText=`Page ${page} / ${pages}`;
-  render(rows);
+    hideLoader(`${data.total} results found`);
+    pageInfo.innerText = `Page ${page} / ${pages}`;
+
+    render(rows);
 }
 
 /* ---------- PAGINATION ---------- */
